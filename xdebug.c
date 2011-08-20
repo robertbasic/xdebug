@@ -1803,7 +1803,7 @@ ZEND_DLEXPORT void xdebug_statement_call(zend_op_array *op_array)
 		}
 
 		if (XG(context).line_breakpoints) {
-			int   break_ok;
+			int   break_ok, hit;
 			int   old_error_reporting;
 			zval  retval;
 			int   file_len = strlen(file);
@@ -1811,15 +1811,36 @@ ZEND_DLEXPORT void xdebug_statement_call(zend_op_array *op_array)
 			for (le = XDEBUG_LLIST_HEAD(XG(context).line_breakpoints); le != NULL; le = XDEBUG_LLIST_NEXT(le)) {
 				brk = XDEBUG_LLIST_VALP(le);
 
-#if 0
-				printf("b->d: %d; ln: %d; b->l: %d; b->f: %s; f: %s, f_l: %d; b->f_l: %d\n",
-						brk->disabled, lineno, brk->lineno, brk->file, file, file_len, brk->file_len);
-#endif
+				hit = 0;
+				if (!brk->disabled && lineno == brk->lineno) {
 #if PHP_WIN32
-				if (!brk->disabled && lineno == brk->lineno && strncasecmp(brk->file, file + file_len - brk->file_len, brk->file_len) == 0) {
+					if (strncasecmp(brk->file, file + file_len - brk->file_len, brk->file_len) == 0) {
+						hit = 1;
+					}
 #else
-				if (!brk->disabled && lineno == brk->lineno && memcmp(brk->file, file + file_len - brk->file_len, brk->file_len) == 0) {
+					if (memcmp(brk->file, file + file_len - brk->file_len, brk->file_len) == 0) {
+						hit = 1;
+					}
 #endif
+
+					if (!hit) { /* Do realpath checks */
+						char *rp_brk, *rp_cur_file;
+						int   rp_brk_len, rp_cur_file_len;
+
+						rp_brk = VCWD_REALPATH(brk->file, NULL);
+						rp_cur_file = VCWD_REALPATH(file, NULL);
+
+						if (rp_brk && rp_cur_file) {
+							rp_brk_len = strlen(rp_brk);
+							rp_cur_file_len = strlen(rp_cur_file);
+
+							if (memcmp(rp_brk, rp_cur_file + rp_cur_file_len - rp_brk_len, rp_brk_len) == 0) {
+								hit = 1;
+							}
+						}
+					}
+				}
+				if (hit) {
 					break_ok = 1; /* Breaking is allowed by default */
 
 					/* Check if we have a condition set for it */
